@@ -89,7 +89,7 @@ const app = () => axiosHelper.post('https://www.notion.so/api/v3/enqueueTask', {
     }, 15000);
     checkState();
 })).then((exportUrl) => new Promise((resolve, reject) => {
-    if(webdav.enabled) {
+    if(!webdav.enabled) {
         console.log('Check remaning storage and clean.');
         if(!fs.existsSync('../out'))
             fs.mkdirSync('../out');
