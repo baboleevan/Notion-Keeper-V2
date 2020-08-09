@@ -1,0 +1,30 @@
+{
+  "name": "notion-keeper-v2",
+  "version": "2.0.0",
+  "description": "",
+  "main": "app.js",
+  "dependencies": {
+    "axios": "^0.19.2",
+    "chalk": "^4.1.0",
+    "mv": "^2.1.1",
+    "object-helper-js": "^1.0.2"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "start": "node ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/donghoony1/Notion-Keeper-V2.git"
+  },
+  "keywords": [
+    "Notion",
+    "Backup"
+  ],
+  "author": "DongHoon Yoo",
+  "license": "GPL-3.0",
+  "bugs": {
+    "url": "https://github.com/donghoony1/Notion-Keeper-V2/issues"
+  },
+  "homepage": "https://github.com/donghoony1/Notion-Keeper-V2#readme"
+}
