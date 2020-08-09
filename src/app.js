@@ -2,8 +2,8 @@ const fs = require('fs');
 const axiosHelper = new (require('./includes/axios-helper')).init(5);
 const chalk = require('chalk');
 const https = require('https');
-const mv = require('mv');
 const cron = require('node-cron');
+const webdavClient = require('webdav');
 require('object-helper-js');
 
 console.log(
@@ -22,18 +22,28 @@ console.log(
     )
 );
 
-if(process.argv.length < 6)
-    throw new Error('Error: Token and spaceId is required.');
+[ 'token', 'spaceid' ].forEach((a) => {
+    if(a === undefined || a === '')
+        throw new Error('Error: Token and spaceId is required.');
+});
 
-const maximumStoredQuantity = process.argv[2];
-const maximumStoredSize = process.argv[3];
-const token = process.argv[4];
-const spaceId = process.argv[5];
-const cronExpression = process.argv[6];
+const maximumStoredQuantity = process.env.maxqty || 30;
+const maximumStoredSize = process.env.maxsize || 10;
+const cronExpression = process.env.cron || undefined;
+const webdav = {
+    ...(() => {
+        const instance = {};
+        [ 'url', 'path', 'user', 'pass' ].forEach((e) => (
+            instance[e] = process.env['webdav_' + e] || undefined
+        ));
+        return instance;
+    })()
+};
+webdav.enabled = webdav.values().every((e) => e !== undefined);
 
 const config = {
     headers: {
-        Cookie: 'token_v2=' + token
+        Cookie: 'token_v2=' + process.env.token
     }
 };
 
@@ -42,7 +52,7 @@ const cronWaitingMessage = 'Waiting for the time to backup which was defined by 
 let isRunning = false;
 
 
-const app = (runWithCron) => axiosHelper.post('https://www.notion.so/api/v3/enqueueTask', {
+const app = () => axiosHelper.post('https://www.notion.so/api/v3/enqueueTask', {
     task: { 
         eventName: 'exportSpace',
         request: {
@@ -50,7 +60,7 @@ const app = (runWithCron) => axiosHelper.post('https://www.notion.so/api/v3/enqu
                 exportType: 'markdown',
                 timeZone: 'Asia/Seoul'
             },
-            spaceId
+            spaceId: process.env.spaceid
         }
     }
 }, config).then((response) => new Promise((resolve, reject) => {
@@ -79,43 +89,52 @@ const app = (runWithCron) => axiosHelper.post('https://www.notion.so/api/v3/enqu
     }, 15000);
     checkState();
 })).then((exportUrl) => new Promise((resolve, reject) => {
-    console.log('Check remaning storage and clean.');
-    if(!fs.existsSync('../out'))
-        fs.mkdirSync('../out');
-    if(!fs.existsSync('./.out-temporary'))
-        fs.mkdirSync('./.out-temporary');
-    (async () => {
-        while(maximumStoredQuantity !== -1
-            && maximumStoredQuantity <= fs.readdirSync('../out').length)
-            fs.unlinkSync('../out/' + fs.readdirSync('../out')[0]);
-        while(maximumStoredSize !== -1
-            && maximumStoredSize <= ((path) => (fs.readdirSync(path).reduce((a, c) => a + fs.statSync(path + '/' + c).size, 0) / 1024 ** 3).toFixed(2))('../out'))
-            fs.unlinkSync('../out/' + fs.readdirSync('../out')[0]);
-    })();
+    if(webdav.enabled) {
+        console.log('Check remaning storage and clean.');
+        if(!fs.existsSync('../out'))
+            fs.mkdirSync('../out');
+        (async () => {
+            while(maximumStoredQuantity !== -1
+                && maximumStoredQuantity <= fs.readdirSync('../out').length)
+                fs.unlinkSync('../out/' + fs.readdirSync('../out')[0]);
+            while(maximumStoredSize !== -1
+                && maximumStoredSize <= ((path) => (fs.readdirSync(path).reduce((a, c) => a + fs.statSync(path + '/' + c).size, 0) / 1024 ** 3).toFixed(2))('../out'))
+                fs.unlinkSync('../out/' + fs.readdirSync('../out')[0]);
+        })();
+    }
 
     console.log('It was started to download the workspace.\nPlease wait. It may takes more than 10 minutes.');
-    const path = `./.out-temporary/Export-${ new Date().getTime() }.zip`;
-    const file = fs.createWriteStream(path);
+    const name = `Export-${ new Date().getTime() }.zip`;
+    let data = [];
     https.get(exportUrl, (response) => {
-        response.pipe(file);
-        
-        file.on('finish', () => (
-            file.close(() => {
-                mv(path, `../out/${ path.split('/', 3)[2] }`, reject);
+        response.on('data', (chunk) => (
+            data.push(chunk)
+        )).on('end', () => {
+            const bufferFile = Buffer.concat(data);
+            (async() => {
+                if(webdav.enabled) {
+                    const client = webdavClient.createClient(webdav.url, {
+                        username: webdav.user, 
+                        password: webdav.pass 
+                    });
+                    await client.putFileContents(webdav.path + '/' + name, bufferFile, {
+                        overwrite: true, 
+                        maxContentLength: Infinity,
+                        maxBodyLength: Infinity 
+                    });
+                }
+                else 
+                    fs.writeFileSync('../out/' + name, bufferFile);
+                
                 console.log('Done!\n\n');
                 isRunning = false;
 
-                if(runWithCron) {
+                if(cronExpression) {
                     resolve();
                     console.log(cronWaitingMessage);
                 } else
                     process.exit(0);
-            })
-        ));
-
-        file.on('error', (error) => {
-            fs.unlinkSync(path);
-            reject(error);
+            })();
         });
     });
 })).catch((error) => {
@@ -125,13 +144,13 @@ const app = (runWithCron) => axiosHelper.post('https://www.notion.so/api/v3/enqu
 });
 
 if(process.argv.length < 7)
-    app(false);
+    app();
 else {
     console.log(cronWaitingMessage);
     cron.schedule(cronExpression, () => {
         if(!isRunning) {
             isRunning = true;
-            app(true);
+            app();
         }
     });
 }
