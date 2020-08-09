@@ -143,9 +143,7 @@ const app = () => axiosHelper.post('https://www.notion.so/api/v3/enqueueTask', {
     throw new Error(error);
 });
 
-if(process.argv.length < 7)
-    app();
-else {
+if(cronExpression){
     console.log(cronWaitingMessage);
     cron.schedule(cronExpression, () => {
         if(!isRunning) {
@@ -153,4 +151,5 @@ else {
             app();
         }
     });
-}
+} else
+    app();
