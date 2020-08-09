@@ -5,6 +5,7 @@ ENV token=
 ENV spaceid=
 ENV maxqty=30
 ENV maxsize=10
+ENV cron=
 
 RUN curl -sL https://rpm.nodesource.com/setup_lts.x | bash - && \
     yum install -y nodejs
@@ -16,7 +17,8 @@ WORKDIR /notionkeeper
 RUN npm install
 
 ENTRYPOINT node . \
+    ${maxqty} \
+    ${maxsize} \
     ${token} \
     ${spaceid} \
-    ${maxqty} \
-    ${maxsize}
+    "${cron}"

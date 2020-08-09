@@ -3,6 +3,7 @@ const axiosHelper = new (require('./includes/axios-helper')).init(5);
 const chalk = require('chalk');
 const https = require('https');
 const mv = require('mv');
+const cron = require('node-cron');
 require('object-helper-js');
 
 console.log(
@@ -24,10 +25,11 @@ console.log(
 if(process.argv.length < 6)
     throw new Error('Error: Token and spaceId is required.');
 
-const token = process.argv[2];
-const spaceId = process.argv[3];
-const maximumStoredQuantity = process.argv[4];
-const maximumStoredSize = process.argv[5];
+const maximumStoredQuantity = process.argv[2];
+const maximumStoredSize = process.argv[3];
+const token = process.argv[4];
+const spaceId = process.argv[5];
+const cronExpression = process.argv[6];
 
 const config = {
     headers: {
@@ -35,7 +37,12 @@ const config = {
     }
 };
 
-axiosHelper.post('https://www.notion.so/api/v3/enqueueTask', {
+const cronWaitingMessage = 'Waiting for the time to backup which was defined by cron expression. - ' + cronExpression + '\n\n';
+
+let isRunning = false;
+
+
+const app = (runWithCron) => axiosHelper.post('https://www.notion.so/api/v3/enqueueTask', {
     task: { 
         eventName: 'exportSpace',
         request: {
@@ -95,8 +102,14 @@ axiosHelper.post('https://www.notion.so/api/v3/enqueueTask', {
         file.on('finish', () => (
             file.close(() => {
                 mv(path, `../out/${ path.split('/', 3)[2] }`, reject);
-                console.log('Done!');
-                process.exit(0);
+                console.log('Done!\n\n');
+                isRunning = false;
+
+                if(runWithCron) {
+                    resolve();
+                    console.log(cronWaitingMessage);
+                } else
+                    process.exit(0);
             })
         ));
 
@@ -106,6 +119,19 @@ axiosHelper.post('https://www.notion.so/api/v3/enqueueTask', {
         });
     });
 })).catch((error) => {
+    isRunning = false;
     console.log(error);
-    new Error(error);
+    throw new Error(error);
 });
+
+if(process.argv.length < 7)
+    app(false);
+else {
+    console.log(cronWaitingMessage);
+    cron.schedule(cronExpression, () => {
+        if(!isRunning) {
+            isRunning = true;
+            app(true);
+        }
+    });
+}
