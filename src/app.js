@@ -3,6 +3,7 @@ const axiosHelper = new (require('./includes/axios-helper')).init(5);
 const chalk = require('chalk');
 const https = require('https');
 const cron = require('node-cron');
+const mv = require('mv');
 const webdavClient = require('webdav');
 require('object-helper-js');
 
@@ -93,6 +94,8 @@ const app = () => axiosHelper.post('https://www.notion.so/api/v3/enqueueTask', {
         console.log('Check remaning storage and clean.');
         if(!fs.existsSync('../out'))
             fs.mkdirSync('../out');
+        if(!fs.existsSync('../out-temp'))
+            fs.mkdirSync('../out-temp');
         (async () => {
             while(maximumStoredQuantity !== -1
                 && maximumStoredQuantity <= fs.readdirSync('../out').length)
@@ -106,13 +109,13 @@ const app = () => axiosHelper.post('https://www.notion.so/api/v3/enqueueTask', {
     console.log('It was started to download the workspace.\nPlease wait. It may takes more than 10 minutes.');
     const name = `Export-${ new Date().getTime() }.zip`;
     let data = [];
-    https.get(exportUrl, (response) => {
-        response.on('data', (chunk) => (
-            data.push(chunk)
-        )).on('end', () => {
-            const bufferFile = Buffer.concat(data);
-            (async() => {
-                if(webdav.enabled) {
+    if(webdav.enabled)
+        https.get(exportUrl, (response) => {
+            response.on('data', (chunk) => (
+                data.push(chunk)
+            )).on('end', () => {
+                const bufferFile = Buffer.concat(data);
+                (async() => {
                     const client = webdavClient.createClient(webdav.url, {
                         username: webdav.user, 
                         password: webdav.pass 
@@ -122,10 +125,28 @@ const app = () => axiosHelper.post('https://www.notion.so/api/v3/enqueueTask', {
                         maxContentLength: Infinity,
                         maxBodyLength: Infinity 
                     });
+                    
+                    console.log('Done!\n\n');
+                    isRunning = false;
+
+                    if(cronExpression) {
+                        resolve();
+                        console.log(cronWaitingMessage);
+                    } else
+                        process.exit(0);
+                })();
+            });
+        });
+    else {
+        const stream = fs.createWriteStream('../out-temp/' + name);
+        https.get(exportUrl, (response) => {
+            response.pipe(stream);
+            stream.on('finish', () => mv('../out-temp/' + name, '../out/' + name, (error) => {
+                if(error) {
+                    console.error(error);
+                    process.exit(0);
                 }
-                else 
-                    fs.writeFileSync('../out/' + name, bufferFile);
-                
+
                 console.log('Done!\n\n');
                 isRunning = false;
 
@@ -134,16 +155,16 @@ const app = () => axiosHelper.post('https://www.notion.so/api/v3/enqueueTask', {
                     console.log(cronWaitingMessage);
                 } else
                     process.exit(0);
-            })();
+            }));
         });
-    });
+    }
 })).catch((error) => {
     isRunning = false;
     console.log(error);
     throw new Error(error);
 });
 
-if(cronExpression){
+if(cronExpression) {
     console.log(cronWaitingMessage);
     cron.schedule(cronExpression, () => {
         if(!isRunning) {
